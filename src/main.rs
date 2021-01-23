@@ -1,5 +1,7 @@
 // Windows API Working with strings: https://docs.microsoft.com/en-us/windows/win32/learnwin32/working-with-strings
 
+// DirectX 11 Graphics Pipeline overview: https://docs.microsoft.com/en-us/windows/win32/direct3d11/overviews-direct3d-11-graphics-pipeline
+
 // TODO: The shizzle do this do? (extern crate)
 extern crate winapi;
 
@@ -33,8 +35,6 @@ use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
 
 fn main() {
-    println!("Hello, World!");
-
     // TODO: Read up on unsafe block
     unsafe {
         // TODO: What does this magic do?
@@ -195,6 +195,85 @@ fn main() {
         idxgi_device.as_ref().unwrap().Release();
         idxgi_adapter.as_ref().unwrap().Release();
         idxgi_factory.as_ref().unwrap().Release();
+
+        // Creating Render Target View
+        // We need to bind the back buffer of our swap chain to the Output Merger Stage (so the back buffer can be rendered to by the pipeline)
+        // In order to do this, we need to create a Render Target View and bind that view to the pipeline
+        let mut back_buffer_view : *mut ID3D11RenderTargetView = null_mut();
+        let mut back_buffer : *mut ID3D11Texture2D = null_mut();        
+
+        // IDXGISwapChain::GetBuffer is used to access a swap chain's back buffers.
+        if FAILED(idxgi_swap_chain.as_ref().unwrap().GetBuffer(0, &ID3D11Texture2D::uuidof(), &mut back_buffer as *mut *mut _ as *mut *mut c_void)) {
+            println!("Failed to get swap chain back buffer!");
+            return
+        }
+
+        // ID3D11Device::CreateRenderTargetView creates a render-target view for accessing resource data.
+        // pResource = A pointer to the resource that represents a render target, in this case our swap-chain backbuffer.
+        // Render Target Vies can be used to bind to the Output Merger Stage
+        if FAILED(device_ref.CreateRenderTargetView(back_buffer as *mut ID3D11Resource, null_mut(), &mut back_buffer_view)) {
+            println!("Failed to create a render target view from the swap chain back buffer!");
+            return
+        }
+
+        // We don't need a COM object to the back buffer any longer
+        back_buffer.as_ref().unwrap().Release();
+
+        // TODO: Read up on Depth/Stencil buffer
+        // Creation of depth/stencil buffer
+        // A depth/stencil buffer is simply a 2D texture used to store depth information.
+
+        // In order to create a 2D texture, we fill out a D3D11_TEXTURE2D_DESC struct describing
+        // the parameters of the texture we want to create.
+        let mut depth_buffer_texture_description = D3D11_TEXTURE2D_DESC::default();
+
+        // The width and height of the texture in Texels.
+        depth_buffer_texture_description.Width = 600;
+        depth_buffer_texture_description.Height = 800;
+        
+        // The number of MipMap levels in the texture
+        // We only need 1 mipmap level in our depth buffer.
+        // TODO: Read up on MipMap levels...
+        depth_buffer_texture_description.MipLevels = 1;
+
+        // The number of textures in the texture array.
+        // We only need one texture for our depth buffer.
+        depth_buffer_texture_description.ArraySize = 1;
+
+        // The format of the texture.
+        // DXGI_FORMAT_D24_UNORM_S8_UINT = 32-bit-z-buffer format supporting 24 bits for depth and 8 bits for stencil.
+        depth_buffer_texture_description.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
+
+        // Again, we simply use no MSAA right now, as I'm not checking for the supported quality level of my hardware.
+        depth_buffer_texture_description.SampleDesc.Count = 1;
+        depth_buffer_texture_description.SampleDesc.Quality = 0;
+
+        // Usage describes how the texture should be read from and written to.
+        // D3D11_USAGE_DEFAULT is the most common choice, as it describes a texture which requires Read and Write access by the GPU.
+        depth_buffer_texture_description.Usage = D3D11_USAGE_DEFAULT;
+
+        // BindFlags is used to identify how a resource should be bound to the pipeline
+        // D3D11_BIND_DEPTH_STENCIL = The texture will be bound as a depth-stencil target for the output-merger stage.
+        depth_buffer_texture_description.BindFlags = D3D11_BIND_DEPTH_STENCIL;
+
+        let mut depth_buffer : *mut ID3D11Texture2D = null_mut();
+        let mut depth_buffer_view : *mut ID3D11DepthStencilView = null_mut();
+
+        if FAILED(device_ref.CreateTexture2D(&depth_buffer_texture_description, null_mut(), &mut depth_buffer)) {
+            println!("Failed to create depth buffer!");
+            return
+        }
+
+        if FAILED(device_ref.CreateDepthStencilView(depth_buffer as *mut ID3D11Resource, null_mut(), &mut depth_buffer_view)) {
+            println!("Failed to create depth view");
+            return
+        }
+
+        // Bind back buffer view and depth buffer view to Output Merger Stage
+        immediate_device_context.as_ref().unwrap().OMSetRenderTargets(1, &back_buffer_view, depth_buffer_view);
+
+        // TODO: Exercise: Enumerate through the available outputs (monitors) for an adapter. Use IDXGIAdapter::EnumOutputs.
+        // TODO: Exercise: Each output has a list of supported display modes. For each of them, list width, height, refresh rate, pixel format, etc...
 
         let mut current_message : MSG = MSG::default();
         while !should_quit {
