@@ -9,4 +9,4 @@ edition = "2018"
 # Features express optional dependencies that can enchance a package, conditional compilation options, clusters of dependencies etc...
 # The winapi package is designed so that each module is gated on a feature flag.
 # Trying to use a package path for a feature you have not enabled will result in unresolved import errors.
-winapi = { version = "0.3.9", features = ["winuser", "minwindef", "libloaderapi", "windef"] }
+winapi = { version = "0.3.9", features = ["winuser", "minwindef", "libloaderapi", "windef", "impl-default", "dxgi", "dxgitype", "d3d11", "winerror", "unknwnbase", "guiddef", "dxgiformat"] }
