@@ -6,11 +6,11 @@
 extern crate winapi;
 
 // TODO: Read up on use declarations
-use std::{char::DecodeUtf16, mem, ptr::null_mut};
+use std::{char::DecodeUtf16, collections::vec_deque, env, ffi::{CStr, CString}, fs::{self, File}, io::Read, mem, ptr::null_mut};
 
 use libloaderapi::GetModuleHandleW;
 use minwindef::{HMODULE, LPARAM, LRESULT, TRUE, UINT, WPARAM};
-use winapi::{um::winuser::*};
+use winapi::{shared::minwindef::FALSE, um::winuser::*};
 use winapi::um::d3d11::*;
 use winapi::um::d3dcommon::*;
 use winapi::shared::minwindef;
@@ -33,6 +33,13 @@ use std::ffi::OsStr;
 // GitHub Issue: https://github.com/rust-analyzer/rust-analyzer/issues/6038
 // OsStrExt contains Windows specific extensions to OsStr: encode_wide, which re-encodes an OsStr as UTF-16.
 use std::os::windows::ffi::OsStrExt;
+
+use ultraviolet::vec::*;
+
+struct Vertex {
+    position: Vec3,
+    color: Vec4
+}
 
 fn main() {
     // TODO: Read up on unsafe block
@@ -217,7 +224,7 @@ fn main() {
         }
 
         // We don't need a COM object to the back buffer any longer
-        back_buffer.as_ref().unwrap().Release();
+        //back_buffer.as_ref().unwrap().Release();
 
         // TODO: Read up on Depth/Stencil buffer
         // Creation of depth/stencil buffer
@@ -228,8 +235,8 @@ fn main() {
         let mut depth_buffer_texture_description = D3D11_TEXTURE2D_DESC::default();
 
         // The width and height of the texture in Texels.
-        depth_buffer_texture_description.Width = 600;
-        depth_buffer_texture_description.Height = 800;
+        depth_buffer_texture_description.Width = 800;
+        depth_buffer_texture_description.Height = 600;
         
         // The number of MipMap levels in the texture
         // We only need 1 mipmap level in our depth buffer.
@@ -275,6 +282,152 @@ fn main() {
         // TODO: Exercise: Enumerate through the available outputs (monitors) for an adapter. Use IDXGIAdapter::EnumOutputs.
         // TODO: Exercise: Each output has a list of supported display modes. For each of them, list width, height, refresh rate, pixel format, etc...
 
+        // Create Vertex Buffer & upload it
+        let triangle_vertex_buffer = [
+            Vertex { 
+                position: Vec3::new(0.0, 0.5, 0.5),
+                color: Vec4::new(0.5, 0.5 ,0.5, 1.0)
+            },
+            Vertex { 
+                position: Vec3::new(0.5, -0.5, 0.5),
+                color: Vec4::new(0.5, 0.5 ,0.5, 1.0)
+            },
+            Vertex { 
+                position: Vec3::new(-0.5, -0.5, 0.5),
+                color: Vec4::new(0.5, 0.5 ,0.5, 1.0)
+            }
+        ];
+
+        // https://docs.microsoft.com/en-us/windows/win32/api/d3d11/ns-d3d11-d3d11_buffer_desc
+        // D3D11_BUFFER_DESC is used to describe the buffer we want to upload, including how it's going to be used
+        let buffer_description = D3D11_BUFFER_DESC {
+            ByteWidth: (mem::size_of::<Vertex>() * 3) as UINT,
+            Usage: D3D11_USAGE_IMMUTABLE,
+            BindFlags: D3D11_BIND_VERTEX_BUFFER,
+            CPUAccessFlags: 0,
+            MiscFlags: 0,
+            StructureByteStride: 0
+        };
+
+        // https://docs.microsoft.com/en-us/windows/win32/api/d3d11/ns-d3d11-d3d11_subresource_data
+        // D3D11_SUBRESOURCE_DATA is used to describe the data we want to initialize a buffer withcar
+        let buffer_data_description = D3D11_SUBRESOURCE_DATA {
+            pSysMem: triangle_vertex_buffer.as_ptr() as *const c_void,
+            SysMemPitch: 0,
+            SysMemSlicePitch: 0
+        };
+
+        let mut vertex_buffer: *mut ID3D11Buffer = null_mut();
+        if FAILED( device_ref.CreateBuffer(&buffer_description, &buffer_data_description, &mut vertex_buffer) ) {
+            println!("Failed to create vertex buffer!");
+            return
+        }
+
+        // After we have a vertex buffer, it needs to be bound to an INPUT SLOT, to feed the vertices to the pipeline as input.
+        // https://docs.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11devicecontext-iasetvertexbuffers
+        let size_of_vertex_struct = mem::size_of::<Vertex>() as u32;
+        let p_offsets = 0;
+        immediate_device_context.as_ref().unwrap().IASetVertexBuffers(
+            0, 
+            1, 
+            &vertex_buffer, 
+            &size_of_vertex_struct, 
+            &p_offsets);
+
+        let semantic_name_position = CString::new("POSITION").unwrap();
+        let semantic_name_color = CString::new("COLOR").unwrap();
+
+        let input_element_descriptions = [
+            D3D11_INPUT_ELEMENT_DESC {
+                SemanticName: semantic_name_position.as_ptr(),
+                SemanticIndex: 0,
+                Format: DXGI_FORMAT_R32G32B32_FLOAT,
+                InputSlot: 0,
+                AlignedByteOffset: 0,
+                InputSlotClass: D3D11_INPUT_PER_VERTEX_DATA,
+                InstanceDataStepRate: 0
+            },
+            D3D11_INPUT_ELEMENT_DESC {
+                SemanticName: semantic_name_color.as_ptr(),
+                SemanticIndex: 0,
+                Format: DXGI_FORMAT_R32G32B32A32_FLOAT,
+                InputSlot: 0,
+                AlignedByteOffset: 0,
+                InputSlotClass: D3D11_INPUT_PER_VERTEX_DATA,
+                InstanceDataStepRate: 0
+            }
+        ];
+
+        // parent() method will return the path without the final component, if there is one (such as a filename).
+        let current_executable_path = env::current_exe().unwrap();
+        let path_to_vertex_shader = current_executable_path.parent().unwrap().join("resources\\shaders\\compiled-vertex-shader.shader");
+
+        let compiled_shader_code = fs::read(path_to_vertex_shader).unwrap();
+
+        let mut input_layout_object : *mut ID3D11InputLayout = null_mut();
+        if FAILED(device_ref.CreateInputLayout(
+            input_element_descriptions.as_ptr(), 
+            2, compiled_shader_code.as_ptr() as *const c_void, compiled_shader_code.len(), &mut input_layout_object)) {
+                println!("Failed to create input layout!");
+                return
+        }
+
+        immediate_device_context.as_ref().unwrap().IASetInputLayout(input_layout_object);
+
+        // We must also tell the IA stage how to assemble the vertices into primitives.
+        // You do this by specifying a "primitive type" through the Primitive Topology method.
+        immediate_device_context.as_ref().unwrap().IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+        // Create vertex shader and pixel shader
+        let path_to_pixel_shader = current_executable_path.parent().unwrap().join("resources\\shaders\\compiled-pixel-shader.shader");
+        let compiled_pixel_shader_code = fs::read(path_to_pixel_shader).unwrap();
+
+        let mut vertex_shader_instance : *mut ID3D11VertexShader = null_mut();
+        if FAILED(device_ref.CreateVertexShader(compiled_shader_code.as_ptr() as *const c_void, compiled_shader_code.len(), null_mut(), &mut vertex_shader_instance)) {
+            println!("Failed to create vertex shader!");
+            return
+        }
+
+        let mut pixel_shader_instance : *mut ID3D11PixelShader = null_mut();
+        if FAILED(device_ref.CreatePixelShader(compiled_pixel_shader_code.as_ptr() as *const c_void, compiled_pixel_shader_code.len(), null_mut(), &mut pixel_shader_instance)) {
+            println!("Failed to create vertex shader!");
+            return
+        }
+
+        // A vertex shader must always be active for the pipeline to execute
+        immediate_device_context.as_ref().unwrap().VSSetShader(vertex_shader_instance, null_mut(), 0);
+        immediate_device_context.as_ref().unwrap().PSSetShader(pixel_shader_instance, null_mut(), 0);
+
+        // Create Rasterizer state
+        // https://docs.microsoft.com/en-us/windows/win32/api/d3d11/ns-d3d11-d3d11_rasterizer_desc
+        let mut rasterizer_description = D3D11_RASTERIZER_DESC::default();
+        rasterizer_description.FillMode = D3D11_FILL_SOLID;
+        rasterizer_description.CullMode = D3D11_CULL_NONE;
+        rasterizer_description.FrontCounterClockwise = FALSE;
+        rasterizer_description.DepthClipEnable = TRUE;
+
+        let mut rasterizer_state : *mut ID3D11RasterizerState = null_mut();
+        if FAILED(device_ref.CreateRasterizerState(&rasterizer_description, &mut rasterizer_state)) {
+            println!("Failed to create rasterizer state!");
+            return
+        }
+
+        immediate_device_context.as_ref().unwrap().RSSetState(rasterizer_state);
+
+        // It appears that it is required for a Viewport to be bound to the pipeline before the Draw() call succeeds.
+        let viewport = D3D11_VIEWPORT {
+            Height: 600.0,
+            Width: 800.0,
+            MinDepth: 0.0,
+            MaxDepth: 1.0,
+            TopLeftX: 0.0,
+            TopLeftY: 0.0
+        };
+
+        immediate_device_context.as_ref().unwrap().RSSetViewports(1, &viewport);
+
+        let clear_color = Vec4::new(5.0, 0.0, 0.0, 1.0);
+
         let mut current_message : MSG = MSG::default();
         while !should_quit {
             
@@ -289,6 +442,12 @@ fn main() {
                 // TODO: Read up on these
                 TranslateMessage(&current_message);
                 DispatchMessageW(&current_message);
+            } else {
+                immediate_device_context.as_ref().unwrap().ClearRenderTargetView(back_buffer_view, &clear_color.as_array());
+
+                immediate_device_context.as_ref().unwrap().Draw(3, 0);
+
+                idxgi_swap_chain.as_ref().unwrap().Present(0, 0);
             }
 
         }
