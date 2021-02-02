@@ -1,4 +1,4 @@
-// fxc.exe /E PS /T ps_4_1 /Fo "compiled-pixel-shader.shader" ./pixel.hlsl
+// fxc.exe /E PS /T ps_5_0 /Fo "compiled-pixel-shader.shader" ./pixel.hlsl
 
 struct VertexOut
 {
@@ -11,7 +11,7 @@ struct VertexOut
 };
 
 // Pixel shader
-float4 PS(VertexOut pin) : SV_Target
+float4 PS(float4 posH : SV_POSITION, float4 color : COLOR) : SV_Target
 {
-    return pin.Color;
+    return color;
 }

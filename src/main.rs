@@ -224,7 +224,7 @@ fn main() {
         }
 
         // We don't need a COM object to the back buffer any longer
-        //back_buffer.as_ref().unwrap().Release();
+        back_buffer.as_ref().unwrap().Release();
 
         // TODO: Read up on Depth/Stencil buffer
         // Creation of depth/stencil buffer
@@ -285,15 +285,15 @@ fn main() {
         // Create Vertex Buffer & upload it
         let triangle_vertex_buffer = [
             Vertex { 
-                position: Vec3::new(0.0, 0.5, 0.5),
+                position: Vec3::new(0.0, 0.5, 0.0),
                 color: Vec4::new(0.5, 0.5 ,0.5, 1.0)
             },
             Vertex { 
-                position: Vec3::new(0.5, -0.5, 0.5),
+                position: Vec3::new(0.5, -0.5, 0.0),
                 color: Vec4::new(0.5, 0.5 ,0.5, 1.0)
             },
             Vertex { 
-                position: Vec3::new(-0.5, -0.5, 0.5),
+                position: Vec3::new(-0.5, -0.5, 0.0),
                 color: Vec4::new(0.5, 0.5 ,0.5, 1.0)
             }
         ];
@@ -302,7 +302,7 @@ fn main() {
         // D3D11_BUFFER_DESC is used to describe the buffer we want to upload, including how it's going to be used
         let buffer_description = D3D11_BUFFER_DESC {
             ByteWidth: (mem::size_of::<Vertex>() * 3) as UINT,
-            Usage: D3D11_USAGE_IMMUTABLE,
+            Usage: D3D11_USAGE_DEFAULT,
             BindFlags: D3D11_BIND_VERTEX_BUFFER,
             CPUAccessFlags: 0,
             MiscFlags: 0,
@@ -352,7 +352,7 @@ fn main() {
                 SemanticIndex: 0,
                 Format: DXGI_FORMAT_R32G32B32A32_FLOAT,
                 InputSlot: 0,
-                AlignedByteOffset: 0,
+                AlignedByteOffset: 12,
                 InputSlotClass: D3D11_INPUT_PER_VERTEX_DATA,
                 InstanceDataStepRate: 0
             }
@@ -403,8 +403,8 @@ fn main() {
         let mut rasterizer_description = D3D11_RASTERIZER_DESC::default();
         rasterizer_description.FillMode = D3D11_FILL_SOLID;
         rasterizer_description.CullMode = D3D11_CULL_NONE;
-        rasterizer_description.FrontCounterClockwise = FALSE;
-        rasterizer_description.DepthClipEnable = TRUE;
+        rasterizer_description.FrontCounterClockwise = TRUE;
+        rasterizer_description.DepthClipEnable = FALSE;
 
         let mut rasterizer_state : *mut ID3D11RasterizerState = null_mut();
         if FAILED(device_ref.CreateRasterizerState(&rasterizer_description, &mut rasterizer_state)) {
@@ -426,7 +426,7 @@ fn main() {
 
         immediate_device_context.as_ref().unwrap().RSSetViewports(1, &viewport);
 
-        let clear_color = Vec4::new(5.0, 0.0, 0.0, 1.0);
+        let clear_color = Vec4::new(0.45, 0.6, 0.95, 1.0);
 
         let mut current_message : MSG = MSG::default();
         while !should_quit {
@@ -443,11 +443,17 @@ fn main() {
                 TranslateMessage(&current_message);
                 DispatchMessageW(&current_message);
             } else {
+                // Triangle will NOT render unless both ClearRenderTargetView and ClearDepthStencilView is called!
                 immediate_device_context.as_ref().unwrap().ClearRenderTargetView(back_buffer_view, &clear_color.as_array());
+                immediate_device_context.as_ref().unwrap().ClearDepthStencilView(depth_buffer_view, D3D11_CLEAR_DEPTH, 1.0, 0);
 
                 immediate_device_context.as_ref().unwrap().Draw(3, 0);
 
-                idxgi_swap_chain.as_ref().unwrap().Present(0, 0);
+                if FAILED(idxgi_swap_chain.as_ref().unwrap().Present(1, 0)) {
+                    println!("Failed to present!");
+                }
+
+                // immediate_device_context.as_ref().unwrap().OMSetRenderTargets(1, &back_buffer_view, depth_buffer_view);
             }
 
         }

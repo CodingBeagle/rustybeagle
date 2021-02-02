@@ -19,6 +19,12 @@
 			"type": "shell", // shell means the cmd is interpreted as a shell command
 			"command": "./build_scripts/build_script.ps1",
 			"args": ["${workspaceFolder}"]
+		},
+		{
+			"label": "compile shaders",
+			"type": "shell",
+			"command": "./build_scripts/build_shaders.ps1",
+			"args": ["${workspaceFolder}"]
 		}
 	]
 }
