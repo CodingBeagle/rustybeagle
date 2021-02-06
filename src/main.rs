@@ -35,10 +35,16 @@ use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
 
 use ultraviolet::vec::*;
+use ultraviolet::mat::*;
+use ultraviolet::projection::lh_yup::*;
 
 struct Vertex {
     position: Vec3,
     color: Vec4
+}
+
+struct VertexConstantBuffer {
+    worldViewProjection: Mat4
 }
 
 fn main() {
@@ -285,15 +291,15 @@ fn main() {
         // Create Vertex Buffer & upload it
         let triangle_vertex_buffer = [
             Vertex { 
-                position: Vec3::new(0.0, 0.5, 0.0),
+                position: Vec3::new(0.0, 10.0, 0.0),
                 color: Vec4::new(0.5, 0.5 ,0.5, 1.0)
             },
             Vertex { 
-                position: Vec3::new(0.5, -0.5, 0.0),
+                position: Vec3::new(10.0, -10.0, 0.0),
                 color: Vec4::new(0.5, 0.5 ,0.5, 1.0)
             },
             Vertex { 
-                position: Vec3::new(-0.5, -0.5, 0.0),
+                position: Vec3::new(-10.0, -10.0, 0.0),
                 color: Vec4::new(0.5, 0.5 ,0.5, 1.0)
             }
         ];
@@ -455,7 +461,46 @@ fn main() {
 
         immediate_device_context.as_ref().unwrap().RSSetViewports(1, &viewport);
 
-        let clear_color = Vec4::new(0.45, 0.6, 0.95, 1.0);
+        // Set shader buffers
+        let fov_in_degrees: f32 = 45.0;
+        let projection_matrix = perspective_infinite_z_wgpu_dx(fov_in_degrees.to_radians(), 800.0 / 600.0, 0.0);
+
+        let eye_position = Vec3 {
+            x: 0.0,
+            y: 0.0,
+            z: -50.0
+        };
+
+        let world_view_matrix = VertexConstantBuffer {
+            // worldViewProjection: Mat4::identity()
+            worldViewProjection: projection_matrix * Mat4::look_at_lh(eye_position, Vec3::default(), Vec3::unit_y())
+        };
+
+        let vertex_constant_buffer_description = D3D11_BUFFER_DESC {
+            ByteWidth: mem::size_of::<VertexConstantBuffer>() as UINT,
+            // A constant buffer should be DYNAMIC, as it should be accessible by the GPU (read-only) and the CPU (write only).
+            Usage: D3D11_USAGE_DYNAMIC,
+            // We indicate that the buffer should be a constant buffer
+            BindFlags: D3D11_BIND_CONSTANT_BUFFER,
+            // We need the CPU to have WRITE ACCESS, so that the CPU can change its contents.
+            CPUAccessFlags: D3D11_CPU_ACCESS_WRITE,
+            MiscFlags: 0,
+            StructureByteStride: 0
+        };
+
+        let vertex_constant_buffer_init_data = D3D11_SUBRESOURCE_DATA {
+            pSysMem: &world_view_matrix as *const _ as *const c_void,
+            SysMemPitch: 0,
+            SysMemSlicePitch: 0
+        };
+
+        let mut vertex_constant_buffer: *mut ID3D11Buffer = null_mut();
+        if FAILED( device_ref.CreateBuffer(&vertex_constant_buffer_description, &vertex_constant_buffer_init_data, &mut vertex_constant_buffer) ) {
+            println!("Failed to create vertex constant buffer!");
+            return
+        }
+
+        immediate_device_context.as_ref().unwrap().VSSetConstantBuffers(0, 1, &vertex_constant_buffer);
 
         let mut current_message : MSG = MSG::default();
         while !should_quit {
@@ -473,6 +518,7 @@ fn main() {
                 DispatchMessageW(&current_message);
             } else {
                 // Triangle will NOT render unless both ClearRenderTargetView and ClearDepthStencilView is called!
+                let clear_color = Vec4::new(0.45, 0.6, 0.95, 1.0);
                 immediate_device_context.as_ref().unwrap().ClearRenderTargetView(back_buffer_view, &clear_color.as_array());
                 immediate_device_context.as_ref().unwrap().ClearDepthStencilView(depth_buffer_view, D3D11_CLEAR_DEPTH, 1.0, 0);
 
