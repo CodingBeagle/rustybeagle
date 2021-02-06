@@ -378,6 +378,35 @@ fn main() {
         // You do this by specifying a "primitive type" through the Primitive Topology method.
         immediate_device_context.as_ref().unwrap().IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
+        // Create an Index Buffer
+        // https://docs.microsoft.com/en-us/windows/win32/direct3d11/overviews-direct3d-11-resources-buffers-index-how-to
+        // An Index buffer is a simply buffer which contain integer offsets into a vertex buffer. It's used to render primitives more efficiently.
+        // Each offset in the Index Buffer is used to identify a vertex in the vertex buffer.
+        let index_buffer_data = [0, 1, 2];
+
+        let index_buffer_description = D3D11_BUFFER_DESC {
+            ByteWidth: (mem::size_of::<i32>() * 3) as UINT,
+            Usage: D3D11_USAGE_DEFAULT,
+            BindFlags: D3D11_BIND_INDEX_BUFFER,
+            CPUAccessFlags: 0,
+            MiscFlags: 0,
+            StructureByteStride: 0
+        };
+
+        let index_buffer_data_description = D3D11_SUBRESOURCE_DATA {
+            pSysMem: index_buffer_data.as_ptr() as *const c_void,
+            SysMemPitch: 0,
+            SysMemSlicePitch: 0
+        };
+
+        let mut index_buffer : *mut ID3D11Buffer = null_mut();
+        if FAILED( device_ref.CreateBuffer(&index_buffer_description, &index_buffer_data_description, &mut index_buffer) ) {
+            println!("Failed to create index buffer!");
+            return
+        }
+
+        immediate_device_context.as_ref().unwrap().IASetIndexBuffer(index_buffer, DXGI_FORMAT_R32_UINT, 0);
+
         // Create vertex shader and pixel shader
         let path_to_pixel_shader = current_executable_path.parent().unwrap().join("resources\\shaders\\compiled-pixel-shader.shader");
         let compiled_pixel_shader_code = fs::read(path_to_pixel_shader).unwrap();
@@ -447,7 +476,7 @@ fn main() {
                 immediate_device_context.as_ref().unwrap().ClearRenderTargetView(back_buffer_view, &clear_color.as_array());
                 immediate_device_context.as_ref().unwrap().ClearDepthStencilView(depth_buffer_view, D3D11_CLEAR_DEPTH, 1.0, 0);
 
-                immediate_device_context.as_ref().unwrap().Draw(3, 0);
+                immediate_device_context.as_ref().unwrap().DrawIndexed(3, 0, 0);
 
                 if FAILED(idxgi_swap_chain.as_ref().unwrap().Present(1, 0)) {
                     println!("Failed to present!");
